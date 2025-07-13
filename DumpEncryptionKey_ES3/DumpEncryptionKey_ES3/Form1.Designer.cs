@@ -25,14 +25,22 @@ namespace KeyFinder
             StartPosition = FormStartPosition.CenterScreen;
 
             _btnOpen.Text = "Открыть .assets";
+            _btnOpen.AutoSize = true;
+            _btnOpen.Padding = new Padding(12, 6, 12, 6);
             _btnOpen.FlatStyle = FlatStyle.Flat;
-            _btnOpen.BackColor = Color.FromArgb(45, 45, 45);
+            _btnOpen.BackColor = Color.FromArgb(55, 55, 55);
             _btnOpen.ForeColor = Color.White;
             _btnOpen.Click += (_, _) => PickFile();
 
-            var top = new Panel { Dock = DockStyle.Top, Height = 50 };
+            var top = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 60,
+                BackColor = Color.FromArgb(38, 38, 38),
+                Padding = new Padding(10, 10, 10, 10),
+                FlowDirection = FlowDirection.LeftToRight
+            };
             top.Controls.Add(_btnOpen);
-            _btnOpen.Location = new Point(12, 10);
 
             _txtOut.Multiline = true;
             _txtOut.ReadOnly = true;
@@ -56,21 +64,50 @@ namespace KeyFinder
 
             _txtOut.Clear();
             Cursor = Cursors.WaitCursor;
-            try { ExtractKey(dlg.FileName); }
-            catch (Exception ex) { _txtOut.Text = ex.Message; }
-            finally { Cursor = Cursors.Default; }
+            try
+            {
+                ExtractKeySafe(dlg.FileName);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
         }
 
-        // ---------- анализ .assets ----------
-        private void ExtractKey(string path)
+        // ---------- безопасный анализ .assets ----------
+        private void ExtractKeySafe(string path)
         {
             var am = new AssetsManager();
-            var inst = am.LoadAssetsFile(path, true);   // ← вторым аргументом включаем TypeTree
+            AssetsFileInstance inst;
+
+            // Пытаемся загрузить с Type‑Tree. Если его нет — повторяем без него.
+            try
+            {
+                inst = am.LoadAssetsFile(path, true);
+            }
+            catch
+            {
+                inst = am.LoadAssetsFile(path, false);
+            }
+
             int hits = 0;
 
             foreach (var info in inst.file.Metadata.AssetInfos)
             {
-                var field = am.GetBaseField(inst, info);
+                AssetTypeValueField? field;
+                try
+                {
+                    field = am.GetBaseField(inst, info);
+                }
+                catch
+                {
+                    continue; // пропускаем повреждённый / нестандартный объект
+                }
+
                 if (field?.TypeName != "MonoBehaviour") continue;
 
                 if (FindKey(field, out var key, out var name))
@@ -79,27 +116,32 @@ namespace KeyFinder
                     hits++;
                 }
             }
+
             if (hits == 0)
                 _txtOut.Text = "Поле encryptionKey не найдено.";
         }
 
         // ---------- рекурсивный поиск ----------
-        private static bool FindKey(AssetTypeValueField n,
+        private static bool FindKey(AssetTypeValueField node,
                                     out string key,
                                     out string monoName)
         {
-            monoName = n.Children.FirstOrDefault(c => c.FieldName == "m_Name")
+            monoName = node.Children?.FirstOrDefault(c => c.FieldName == "m_Name")
                           ?.AsString ?? "<unnamed>";
 
-            if (n.FieldName is "encryptionKey" or "encryptionPassword" &&
-                n.Value?.ValueType == AssetValueType.String)
+            if (node.FieldName is "encryptionKey" or "encryptionPassword" &&
+                node.Value?.ValueType == AssetValueType.String)
             {
-                key = n.AsString;
+                key = node.AsString;
                 return true;
             }
-            foreach (var c in n.Children)
-                if (FindKey(c, out key, out monoName))
-                    return true;
+
+            if (node.Children != null)
+            {
+                foreach (var child in node.Children)
+                    if (FindKey(child, out key, out monoName))
+                        return true;
+            }
 
             key = null!;
             return false;

@@ -9,6 +9,13 @@ namespace DumpEncryptionKey_ES3
 
         private void InitializeComponent()
         {
+            SuspendLayout();
+            // 
+            // Form1
+            // 
+            ClientSize = new Size(2475, 949);
+            Name = "Form1";
+            ResumeLayout(false);
 
         }
     }
